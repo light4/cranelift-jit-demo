@@ -1,7 +1,8 @@
+use anyhow::Result;
 use core::mem;
 use cranelift_jit_demo::jit;
 
-fn main() -> Result<(), String> {
+fn main() -> Result<()> {
     // Create the JIT instance, which manages all generated functions and data.
     let mut jit = jit::JIT::default();
     println!("the answer is: {}", run_foo(&mut jit)?);
@@ -17,19 +18,19 @@ fn main() -> Result<(), String> {
     Ok(())
 }
 
-fn run_foo(jit: &mut jit::JIT) -> Result<isize, String> {
+fn run_foo(jit: &mut jit::JIT) -> Result<isize> {
     unsafe { run_code(jit, FOO_CODE, (1, 0)) }
 }
 
-fn run_recursive_fib_code(jit: &mut jit::JIT, input: isize) -> Result<isize, String> {
+fn run_recursive_fib_code(jit: &mut jit::JIT, input: isize) -> Result<isize> {
     unsafe { run_code(jit, RECURSIVE_FIB_CODE, input) }
 }
 
-fn run_iterative_fib_code(jit: &mut jit::JIT, input: isize) -> Result<isize, String> {
+fn run_iterative_fib_code(jit: &mut jit::JIT, input: isize) -> Result<isize> {
     unsafe { run_code(jit, ITERATIVE_FIB_CODE, input) }
 }
 
-fn run_hello(jit: &mut jit::JIT) -> Result<isize, String> {
+fn run_hello(jit: &mut jit::JIT) -> Result<isize> {
     jit.create_data("hello_string", "hello world!\0".as_bytes().to_vec())?;
     unsafe { run_code(jit, HELLO_CODE, ()) }
 }
@@ -42,7 +43,7 @@ fn run_hello(jit: &mut jit::JIT) -> Result<isize, String> {
 ///
 /// This function is unsafe since it relies on the caller to provide it with the correct
 /// input and output types. Using incorrect types at this point may corrupt the program's state.
-unsafe fn run_code<I, O>(jit: &mut jit::JIT, code: &str, input: I) -> Result<O, String> {
+unsafe fn run_code<I, O>(jit: &mut jit::JIT, code: &str, input: I) -> Result<O> {
     // Pass the string to the JIT, and it returns a raw pointer to machine code.
     let code_ptr = jit.compile(code)?;
     // Cast the raw pointer to a typed function pointer. This is unsafe, because

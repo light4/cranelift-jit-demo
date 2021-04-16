@@ -7,8 +7,20 @@ repository = "https://github.com/bytecodealliance/cranelift-jit-demo"
 description = "Toy language implemented using cranelift-jit"
 edition = "2018"
 
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+
 [dependencies]
+anyhow = "1.0.40"
 cranelift = "0.73.0"
-cranelift-module = "0.73.0"
 cranelift-jit = "0.73.0"
+cranelift-module = "0.73.0"
+cranelift-native = "0.73.0"
 peg = "0.7.0"
+
+[dependencies.cranelift-codegen]
+version = "0.73"
+default-features = false
+features = ["std", "unwind", "all-arch", "experimental_x64"]

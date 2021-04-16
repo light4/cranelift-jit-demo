@@ -1,4 +1,5 @@
 use crate::frontend::*;
+use anyhow::Result;
 use cranelift::prelude::*;
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{DataContext, Linkage, Module};
@@ -26,7 +27,16 @@ pub struct JIT {
 
 impl Default for JIT {
     fn default() -> Self {
-        let builder = JITBuilder::new(cranelift_module::default_libcall_names());
+        let mut flag_builder = settings::builder();
+        flag_builder.set("use_colocated_libcalls", "false").unwrap();
+        // FIXME set back to true once the x64 backend supports it.
+        flag_builder.set("is_pic", "false").unwrap();
+        let isa_builder = cranelift_native::builder().unwrap_or_else(|msg| {
+            panic!("host machine is not supported: {}", msg);
+        });
+        let isa = isa_builder.finish(settings::Flags::new(flag_builder));
+        let builder = JITBuilder::with_isa(isa, cranelift_module::default_libcall_names());
+
         let module = JITModule::new(builder);
         Self {
             builder_context: FunctionBuilderContext::new(),
@@ -39,10 +49,9 @@ impl Default for JIT {
 
 impl JIT {
     /// Compile a string in the toy language into machine code.
-    pub fn compile(&mut self, input: &str) -> Result<*const u8, String> {
+    pub fn compile(&mut self, input: &str) -> Result<*const u8> {
         // First, parse the string, producing AST nodes.
-        let (name, params, the_return, stmts) =
-            parser::function(&input).map_err(|e| e.to_string())?;
+        let (name, params, the_return, stmts) = parser::function(&input)?;
 
         // Then, translate the AST nodes into Cranelift IR.
         self.translate(params, the_return, stmts)?;
@@ -55,22 +64,19 @@ impl JIT {
         // the function?
         let id = self
             .module
-            .declare_function(&name, Linkage::Export, &self.ctx.func.signature)
-            .map_err(|e| e.to_string())?;
+            .declare_function(&name, Linkage::Export, &self.ctx.func.signature)?;
 
         // Define the function to jit. This finishes compilation, although
         // there may be outstanding relocations to perform. Currently, jit
         // cannot finish relocations until all functions to be called are
         // defined. For this toy demo for now, we'll just finalize the
         // function below.
-        self.module
-            .define_function(
-                id,
-                &mut self.ctx,
-                &mut codegen::binemit::NullTrapSink {},
-                &mut codegen::binemit::NullStackMapSink {},
-            )
-            .map_err(|e| e.to_string())?;
+        self.module.define_function(
+            id,
+            &mut self.ctx,
+            &mut codegen::binemit::NullTrapSink {},
+            &mut codegen::binemit::NullStackMapSink {},
+        )?;
 
         // Now that compilation is finished, we can clear out the context state.
         self.module.clear_context(&mut self.ctx);
@@ -87,18 +93,15 @@ impl JIT {
     }
 
     /// Create a zero-initialized data section.
-    pub fn create_data(&mut self, name: &str, contents: Vec<u8>) -> Result<&[u8], String> {
+    pub fn create_data(&mut self, name: &str, contents: Vec<u8>) -> Result<&[u8]> {
         // The steps here are analogous to `compile`, except that data is much
         // simpler than functions.
         self.data_ctx.define(contents.into_boxed_slice());
         let id = self
             .module
-            .declare_data(name, Linkage::Export, true, false)
-            .map_err(|e| e.to_string())?;
+            .declare_data(name, Linkage::Export, true, false)?;
 
-        self.module
-            .define_data(id, &self.data_ctx)
-            .map_err(|e| e.to_string())?;
+        self.module.define_data(id, &self.data_ctx)?;
         self.data_ctx.clear();
         self.module.finalize_definitions();
         let buffer = self.module.get_finalized_data(id);
@@ -112,7 +115,7 @@ impl JIT {
         params: Vec<String>,
         the_return: String,
         stmts: Vec<Expr>,
-    ) -> Result<(), String> {
+    ) -> Result<()> {
         // Our toy language currently only supports I64 values, though Cranelift
         // supports other types.
         let int = self.module.target_config().pointer_type();
